@@ -18,9 +18,10 @@ class RKCCommunication:
         stopbits (serial.STOPBITS_ONE): The number of stopbits for the serial communication 
                                         Choose 1 for 1 stopbit or 2 for 2 stopbits.
     """
-    def __init__(self, port, address="00", baudrate=DEFAULT_BAUDRATE, 
-                 timeout=DEFAULT_TIMEOUT, bytesize=serial.EIGHTBITS, 
-                 parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, max_retries=3):
+    def __init__(self, port: str, address: str = "00", baudrate: int = DEFAULT_BAUDRATE, 
+                 timeout: int|float = DEFAULT_TIMEOUT, bytesize: int = serial.EIGHTBITS, 
+                 parity: int = serial.PARITY_NONE, stopbits: int = serial.STOPBITS_ONE, 
+                 max_retries: int = 3):
         self.port = port
         self.baudrate = baudrate
         self.address = address
@@ -29,9 +30,9 @@ class RKCCommunication:
         self.parity = parity
         self.stopbits = stopbits
         self.max_retries = max_retries
-        self.ser = None
+        self.ser: serial.Serial = None
 
-    def __enter__(self):
+    def __enter__(self) -> "RKCCommunication":
         self.ser = serial.Serial(
             port=self.port,
             baudrate=self.baudrate,
@@ -67,8 +68,17 @@ class RKCCommunication:
         self.ser.write(NAK.encode('ascii'))
         logging.debug("Sent NAK")
 
-    def poll(self, identifier, memory_area="", return_with_identifier=False):
-        """Polling procedure to request data from the controller."""
+    def poll(self, identifier: str, memory_area: str = "", return_with_identifier: bool = False):
+        """Polling procedure to request data from the controller.
+
+        Args:
+            identifier (str): The identifier of the data to be requested.
+            memory_area (str): The memory area of the data to be requested.
+            return_with_identifier (bool): Whether to return the identifier with the data.
+
+        Returns:
+            str: The data received from the controller.
+        """
         self._send_eot()  # Data link initialization
         query = f"{self.address}{memory_area}{identifier}{ENQ}"
         self.ser.write(query.encode('ascii'))  # Send polling sequence
@@ -93,8 +103,16 @@ class RKCCommunication:
         logging.error("Maximum retries exceeded. Giving up.")
         return None
 
-    def select(self, identifier, data):
-        """Selecting procedure to send data to the controller."""
+    def select(self, identifier: str, data: str):
+        """Selecting procedure to send data to the controller.
+
+        Args:
+            identifier (str): The identifier of the data to be sent.
+            data (str): The data to be sent.
+            
+        Returns:
+            bool: True if the selection is successful, False otherwise.
+        """
         self._send_eot()  # Data link initialization
         message = f"{self.address}{STX}{identifier}{data}{ETX}"
         bcc = calculate_bcc(f'{identifier}{data}{ETX}')
@@ -106,14 +124,14 @@ class RKCCommunication:
         if ack == ACK.encode('ascii'):
             self._send_eot()  # Terminate data link
             return True
-        elif ack == NAK.encode('ascii'):
+        if ack == NAK.encode('ascii'):
             logging.debug("Received NAK, retransmitting: %s", message_with_bcc)
             return self.select(identifier, data)  # Retransmit
         else:
             logging.error("Unexpected response: %s", ack)
             return False
 
-    def _validate_response(self, response):
+    def _validate_response(self, response: bytes) -> bool:
         """Validate the response using BCC."""
         stx_index = response.find(STX.encode('ascii'))
         etx_index = response.find(ETX.encode('ascii'))
@@ -133,8 +151,16 @@ class RKCCommunication:
         logging.debug("Invalid response: %s", response)
         return False
 
-    def _parse_response(self, response, return_with_identifier=False):
-        """Parse the response from the controller."""
+    def _parse_response(self, response: bytes, return_with_identifier=False) -> str|None:
+        """Parse the response from the controller.
+        
+        Args:
+            response (bytes): The response from the controller.
+            return_with_identifier (bool): Whether to return the identifier with the data.
+        
+        Returns:
+            str|None: The data received from the controller, or None if parsing fails.
+        """
         stx_index = response.find(STX.encode('ascii'))
         etx_index = response.find(ETX.encode('ascii'))
         
@@ -161,7 +187,7 @@ class RKCCommunication:
         logging.error("Failed to read value (M1).")
         return None
 
-    def set_value(self, value):
+    def set_value(self, value: int|float):
         """Wrapper for setting a value using S1 command."""
         if isinstance(value, (int, float)):
             formatted_value = f"{value:07.1f}"  # Format to match controller's expected format (e.g., '00100.0')
