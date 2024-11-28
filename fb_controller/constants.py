@@ -1,0 +1,9 @@
+EOT = '\x04'
+ENQ = '\x05'
+ACK = '\x06'
+NAK = '\x15'
+STX = '\x02'
+ETX = '\x03'
+
+DEFAULT_BAUDRATE = 19200
+DEFAULT_TIMEOUT = 3

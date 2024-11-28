@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fb_controller"
+dependencies = ["pyserial>=3.0"]
+requires-python = ">=3.8"
+version = "1.0.0"
+readme = "README.md"
+description = "A Python library facilitates communication with the FB100/400/900 controllers"
