@@ -20,7 +20,7 @@ class RKCCommunication:
     """
     def __init__(self, port, address="00", baudrate=DEFAULT_BAUDRATE, 
                  timeout=DEFAULT_TIMEOUT, bytesize=serial.EIGHTBITS, 
-                 parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE):
+                 parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, max_retries=3):
         self.port = port
         self.baudrate = baudrate
         self.address = address
@@ -28,6 +28,7 @@ class RKCCommunication:
         self.bytesize = bytesize
         self.parity = parity
         self.stopbits = stopbits
+        self.max_retries = max_retries
         self.ser = None
 
     def __enter__(self):
@@ -73,26 +74,23 @@ class RKCCommunication:
         self.ser.write(query.encode('ascii'))  # Send polling sequence
         logging.debug("Sent polling sequence: %s", query)
 
-        # Read until after ETX (including BCC which follows)
-        response = self.ser.read_until(ETX.encode('ascii')) + self.ser.read(1)  # BCC follows ETX
-        logging.debug("Received response: %s", response)
+        retries = 0
+        while retries <= self.max_retries:
+            # BCC follows ETX
+            response = self.ser.read_until(ETX.encode('ascii')) + self.ser.read(1)  
+            logging.debug("Received response: %s", response)
 
-        if response:
-            # Validate the response using BCC
-            if self._validate_response(response):
+            if response and self._validate_response(response):
                 return self._parse_response(response, return_with_identifier)
-            else:
+            elif response:
                 # Send NAK if response is invalid
                 self._send_nak()
-                # Receive data retransmitted from the controller again
-                retransmitted_response = self.ser.read_until(ETX.encode('ascii')) + self.ser.read(1)  # Read BCC again
-                if retransmitted_response:
-                    if self._validate_response(retransmitted_response):
-                        return self._parse_response(retransmitted_response, return_with_identifier)
-                else:
-                    logging.error("No response received or timeout occurred.")
-        else:
-            logging.error("No response received or timeout occurred.")
+                retries += 1
+            else:
+                logging.error("No response received or timeout occurred.")
+                retries += 1
+
+        logging.error("Maximum retries exceeded. Giving up.")
         return None
 
     def select(self, identifier, data):
