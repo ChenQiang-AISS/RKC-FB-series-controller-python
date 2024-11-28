@@ -3,6 +3,7 @@ import serial
 from .constants import EOT, ENQ, STX, ETX, ACK, NAK, DEFAULT_BAUDRATE, DEFAULT_TIMEOUT
 from .utils import calculate_bcc
 
+
 class RKCCommunication:
     """
     This class is the interface to communicate with the RKC controller using the
@@ -18,9 +19,10 @@ class RKCCommunication:
         stopbits (serial.STOPBITS_ONE): The number of stopbits for the serial communication 
                                         Choose 1 for 1 stopbit or 2 for 2 stopbits.
     """
-    def __init__(self, port: str, address: str = "00", baudrate: int = DEFAULT_BAUDRATE, 
-                 timeout: int|float = DEFAULT_TIMEOUT, bytesize: int = serial.EIGHTBITS, 
-                 parity: int = serial.PARITY_NONE, stopbits: int = serial.STOPBITS_ONE, 
+
+    def __init__(self, port: str, address: str = "00", baudrate: int = DEFAULT_BAUDRATE,
+                 timeout: int | float = DEFAULT_TIMEOUT, bytesize: int = serial.EIGHTBITS,
+                 parity: int = serial.PARITY_NONE, stopbits: int = serial.STOPBITS_ONE,
                  max_retries: int = 3):
         self.port = port
         self.baudrate = baudrate
@@ -42,11 +44,11 @@ class RKCCommunication:
             stopbits=self.stopbits
         )
         return self
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Close the serial connection when exiting the context."""
         if self.ser and self.ser.is_open:
             self.ser.close()
-
 
     def _send_eot(self):
         """Send EOT to initiate or terminate the data link."""
@@ -87,7 +89,8 @@ class RKCCommunication:
         retries = 0
         while retries <= self.max_retries:
             # BCC follows ETX
-            response = self.ser.read_until(ETX.encode('ascii')) + self.ser.read(1)  
+            response = self.ser.read_until(
+                ETX.encode('ascii')) + self.ser.read(1)
             logging.debug("Received response: %s", response)
 
             if response and self._validate_response(response):
@@ -140,18 +143,19 @@ class RKCCommunication:
             data = response[stx_index + 1:etx_index + 1]  # Include ETX in data
             # Extract BCC (1 byte immediately after ETX)
             bcc = response[etx_index + 1:etx_index + 2]  # BCC is 1 byte
-            
-            # Calculate BCC including ETX
-            calculated_bcc = calculate_bcc(data.decode('ascii'))  # ETX included in data for BCC
-            logging.debug("Calculated BCC: %s, Received BCC: %s", calculated_bcc, bcc)
-            
+
+            # Calculate BCC including ETX (Note: ETX included in data for BCC)
+            calculated_bcc = calculate_bcc(data.decode('ascii'))
+            logging.debug("Calculated BCC: %s, Received BCC: %s",
+                          calculated_bcc, bcc)
+
             # Validate if calculated BCC matches the received BCC
             return bcc == calculated_bcc
-        
+
         logging.debug("Invalid response: %s", response)
         return False
 
-    def _parse_response(self, response: bytes, return_with_identifier=False) -> str|None:
+    def _parse_response(self, response: bytes, return_with_identifier=False) -> str | None:
         """Parse the response from the controller.
         
         Args:
@@ -163,7 +167,7 @@ class RKCCommunication:
         """
         stx_index = response.find(STX.encode('ascii'))
         etx_index = response.find(ETX.encode('ascii'))
-        
+
         if stx_index != -1 and etx_index != -1:
             # Extract the data between STX and ETX
             data = response[stx_index + 1:etx_index].decode('ascii')
@@ -173,27 +177,31 @@ class RKCCommunication:
             if return_with_identifier:
                 return identifier, value
             return value
-        
+
         logging.error("Failed to parse response: %s", response)
         return None
-    
+
     def read_value(self):
         """Wrapper for reading the process value (PV) using M1 command."""
         result = self.poll(identifier="M1")
         if result:
             identifier, value = result
-            logging.info("Read Value (M1): Identifier: %s, Value: %s", identifier, value)
-            return float(value)  # Assuming the value is a float, adjust as needed
+            logging.info("Read Value (M1): Identifier: %s, Value: %s", 
+                         identifier, value)
+            # Assuming the value is a float, adjust as needed
+            return float(value)
         logging.error("Failed to read value (M1).")
         return None
 
-    def set_value(self, value: int|float):
+    def set_value(self, value: int | float):
         """Wrapper for setting a value using S1 command."""
         if isinstance(value, (int, float)):
-            formatted_value = f"{value:07.1f}"  # Format to match controller's expected format (e.g., '00100.0')
+            # Format to match controller's expected format (e.g., '00100.0')
+            formatted_value = f"{value:07.1f}"
             success = self.select(identifier="S1", data=formatted_value)
             if success:
-                logging.info("Successfully set value (S1): %s", formatted_value)
+                logging.info("Successfully set value (S1): %s",
+                             formatted_value)
             else:
                 logging.error("Failed to set value (S1).")
         else:
@@ -202,4 +210,3 @@ class RKCCommunication:
     def close(self):
         """Close the serial connection."""
         self.ser.close()
-
