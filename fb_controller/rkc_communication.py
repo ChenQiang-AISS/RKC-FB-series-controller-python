@@ -183,7 +183,7 @@ class RKCCommunication:
 
     def read_value(self):
         """Wrapper for reading the process value (PV) using M1 command."""
-        result = self.poll(identifier="M1")
+        result = self.poll(identifier="M1", return_with_identifier=True)
         if result:
             identifier, value = result
             logging.info("Read Value (M1): Identifier: %s, Value: %s", 
