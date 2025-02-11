@@ -94,6 +94,8 @@ class RKCCommunication:
             logging.debug("Received response: %s", response)
 
             if response and self._validate_response(response):
+                # Send EOT to terminate the data link
+                self._send_eot()
                 return self._parse_response(response, return_with_identifier)
             elif response:
                 # Send NAK if response is invalid
