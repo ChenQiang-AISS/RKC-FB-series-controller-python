@@ -116,7 +116,7 @@ class TestRKCCommunication(unittest.TestCase):
         unittest.TestCase().assertEqual(result, -150.0)
 
         # Assert that the _send_eot method was called
-        self.assertEqual(mock_serial_obj.write.call_count, 3)
+        self.assertEqual(mock_serial_obj.write.call_count, 4)
         mock_serial_obj.write.assert_any_call(EOT.encode('ascii'))
         mock_serial_obj.write.assert_any_call(b'01M1\x05')
         mock_serial_obj.write.assert_any_call(NAK.encode('ascii'))
