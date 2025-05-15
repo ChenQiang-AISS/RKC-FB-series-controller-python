@@ -37,13 +37,13 @@ class RKCManager:
 			# or that __enter__ is implicitly handled if we were to use `with`.
 			# The provided RKCCommunication opens serial on __enter__.
 			# We will create it and it will be "active" until closed.
-			with RKCCommunication(
+			self.comm = RKCCommunication(
 				port=settings['serial_port'],
 				address=settings['controller_address'],
 				baudrate=settings['baudrate'],
 				timeout=settings['timeout']
-			) as comm:
-				self.comm = comm
+			)
+			self.comm.open()
 			# The RKCCommunication class provided doesn't have a separate connect method.
 			# It opens the port in __enter__. For a long-lived server,
 			# we might need to adapt it or manage the serial.Serial object more directly.
