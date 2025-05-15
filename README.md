@@ -1,4 +1,4 @@
-# RKC-FB-series-controller-python, a FBController Python Library
+# RKC-FB-series-controller-python, a Python Library for FB100/400/900 Controllers
 
 This Python library facilitates communication with the FB100/400/900 controllers using the RKC protocol over serial communication. It implements polling/selecting methods as defined in the ANSI X3.28-1976 standard, allowing for reading and writing data between a host computer and the controller.
 
