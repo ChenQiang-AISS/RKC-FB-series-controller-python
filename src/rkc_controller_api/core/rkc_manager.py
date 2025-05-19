@@ -2,7 +2,6 @@ import logging
 from typing import Optional
 
 # Assuming fb_controller is in src/ and Python path is set up correctly
-# If src is not in PYTHONPATH, adjust import or project structure
 from fb_controller.rkc_communication import RKCCommunication
 from rkc_controller_api.config import settings
 
@@ -31,12 +30,7 @@ class RKCManager:
 				settings['controller_address'],
 				settings['baudrate']
 			)
-			# RKCCommunication uses a context manager, but for a long-lived object,
-			# we manage open/close manually or adapt the class.
-			# For now, let's assume we can instantiate and then call a connect-like method
-			# or that __enter__ is implicitly handled if we were to use `with`.
-			# The provided RKCCommunication opens serial on __enter__.
-			# We will create it and it will be "active" until closed.
+			
 			self.comm = RKCCommunication(
 				port=settings['serial_port'],
 				address=settings['controller_address'],
@@ -44,33 +38,15 @@ class RKCManager:
 				timeout=settings['timeout']
 			)
 			self.comm.open()
-			# The RKCCommunication class provided doesn't have a separate connect method.
-			# It opens the port in __enter__. For a long-lived server,
-			# we might need to adapt it or manage the serial.Serial object more directly.
-			# For this prototype, we'll assume instantiating it is enough and
-			# methods will work. A better approach would be an explicit open/close.
-			# Let's simulate an open by trying a read.
-			# To truly "open" it without context manager, we'd do:
-			# self.comm.ser = serial.Serial(...)
-			# For now, we rely on methods to handle serial operations.
+			
 			# A test read can confirm connectivity.
-			pv_test = self.comm.read_value() # Assuming read_pv exists as suggested
+			pv_test = self.comm.read_value() 
 			if pv_test is not None:
 				logger.info("Successfully connected to RKC controller. Initial PV: %s", pv_test)
 				self.is_connected = True
 				self.current_temperature = pv_test
 			else:
-				# If RKCCommunication opens port on first operation, this might be complex.
-				# The original RKCCommunication opens port in __enter__.
-				# For a persistent server, you might want to modify RKCCommunication
-				# to have explicit open() and close() methods that are not tied to __enter__/__exit__.
-				# For this prototype, we'll assume it can be used after instantiation.
-				# If it fails, it will log errors during operations.
-				logger.warning("RKC Controller connection might have issues. Test read failed but proceeding.")
-				# We'll set is_connected to True and let operations fail if port isn't truly open.
-				# This part is tricky with the current RKCCommunication design for long-lived apps.
-				# A robust solution would refactor RKCCommunication.
-				self.is_connected = True # Optimistic, actual check happens on ops.
+				raise ConnectionError("RKC Controller connection failed.")
 
 		except Exception as e:
 			logger.error("Failed to connect to RKC controller: %s", e, exc_info=True)

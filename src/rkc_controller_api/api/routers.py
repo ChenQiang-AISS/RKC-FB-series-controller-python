@@ -1,13 +1,14 @@
 import logging
 from datetime import datetime
-import csv
 import os
-from typing import List
+from typing import Optional
 
 import anyio
-from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi import APIRouter, HTTPException, Depends, Body, Query
+import pandas as pd
 
 from rkc_controller_api.models import schemas
+from rkc_controller_api.core.poller import LOG_FIELDNAMES
 from rkc_controller_api.config import settings
 from rkc_controller_api.core.rkc_manager import RKCManager, get_rkc_manager
 
@@ -59,41 +60,82 @@ async def get_status_endpoint(rkc_manager: RKCManager = Depends(get_rkc_manager)
     )
 
 @router.get("/history", response_model=schemas.HistoryResponse)
-async def get_history_endpoint(lines: int = settings.get('max_history_lines', 100)):
+async def get_history_endpoint(
+    lines: Optional[int] = Query(settings.get('max_history_lines', 100), 
+                                 description="Max number of lines to return. 0 or negative for all."),
+    from_timestamp: Optional[datetime] = Query(None, alias="from", 
+                                               description="ISO 8601 format: YYYY-MM-DDTHH:MM:SS[.ffffff][Z or +HH:MM]. " \
+                                                "If not provided, all entries are returned. If provided without timezone, local time is assumed."),
+    to_timestamp: Optional[datetime] = Query(None, alias="to", 
+                                             description="ISO 8601 format: YYYY-MM-DDTHH:MM:SS[.ffffff][Z or +HH:MM]. " \
+                                            "If not provided, all entries are returned. If provided without timezone, local time is assumed."),
+):
     """
-    Retrieves the last N lines of logged data (timestamp, current_temperature, SV, output_value).
+    Retrieves logged data. Can be filtered by a timestamp range and limited by number of lines.
+    Timestamp filtering is applied first, then line limiting.
     """
     if not os.path.exists(LOG_FILE_PATH):
         logger.warning("Log file not found: %s", LOG_FILE_PATH)
         raise HTTPException(status_code=404, detail="Log file not found.")
 
     try:
-        all_entries: List[schemas.HistoryEntry] = []
-        with open(LOG_FILE_PATH, 'r', newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                all_entries.append(schemas.HistoryEntry(
-                    timestamp=row.get('timestamp', ''),
-                    current_temperature=row.get('current_temperature'),
-                    target_temperature=row.get('target_temperature'),
-                    output_value=row.get('output_value')
-                ))
-        
-        # Get the last 'lines' entries
-        # If lines is 0 or negative, it means all lines.
-        if lines <= 0:
-             entries_to_return = all_entries
-        else:
-            entries_to_return = all_entries[-lines:]
-            
-        return schemas.HistoryResponse(
-            count=len(entries_to_return),
-            entries=entries_to_return
-        )
-    except FileNotFoundError:
-        logger.error("Log file not found at path: %s", LOG_FILE_PATH)
-        return schemas.HistoryResponse(count=0, entries=[], message="Log file not found.")
+        df = pd.read_csv(LOG_FILE_PATH)
+
+        # Check for missing headers
+        expected_headers = LOG_FIELDNAMES
+        if not all(header in df.columns for header in expected_headers):
+            logger.error("Log file %s has missing headers. Expected: %s, Got: %s", 
+                         LOG_FILE_PATH, expected_headers, df.columns)
+            raise HTTPException(status_code=500, detail="Log file format error: Missing expected CSV headers.")
+
+        # Convert timestamp column to datetime
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+
+        # Filter out rows with invalid timestamps
+        df = df.dropna(subset=['timestamp'])
+
+        # Make query timestamps timezone-aware if they are naive, assuming local timezone
+        effective_from_ts = from_timestamp
+        if effective_from_ts and effective_from_ts.tzinfo is None:
+            effective_from_ts = effective_from_ts.replace(tzinfo=datetime.now().astimezone().tzinfo)
+
+        effective_to_ts = to_timestamp
+        if effective_to_ts and effective_to_ts.tzinfo is None:
+            effective_to_ts = effective_to_ts.replace(tzinfo=datetime.now().astimezone().tzinfo)
+
+        # Filter by timestamp range
+        if effective_from_ts:
+            df = df[df['timestamp'] >= effective_from_ts]
+        if effective_to_ts:
+            df = df[df['timestamp'] <= effective_to_ts]
+
+        # Convert the DataFrame to a list of HistoryEntry objects
+        all_entries = [
+            schemas.HistoryEntry(
+                timestamp=row['timestamp'],
+                current_temperature=row['current_temperature'],
+                target_temperature=row['target_temperature'],
+                output_value=row['output_value']
+            )
+            for index, row in df.iterrows()
+        ]
+
+    except pd.errors.EmptyDataError as e:
+        logger.error("Log file is empty: %s", LOG_FILE_PATH)
+        raise HTTPException(status_code=404, detail="Log file is empty.") from e
     except Exception as e:
-        logger.error("Error reading history log: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error reading history log: {str(e)}") from e
+        logger.error("Error processing log file: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Error processing log file") from e
+
+    # Apply line limit to the filtered (or all) entries
+    # If lines is 0 or negative, it means all lines from the filtered set.
+    if lines is not None and lines > 0:
+        entries_to_return = all_entries[-lines:]
+    else: # lines <= 0 or lines is None (though Query gives default)
+        entries_to_return = all_entries
+
+    return schemas.HistoryResponse(
+        count=len(entries_to_return),
+        entries=entries_to_return
+    )
 
