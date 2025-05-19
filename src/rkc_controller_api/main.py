@@ -11,90 +11,104 @@ from rkc_controller_api.config import settings
 from rkc_controller_api.core import rkc_manager as rkc_manager_module # import the module
 from rkc_controller_api.core.poller import polling_task
 
-# --- Logging Configuration ---
-# Basic logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(), # Log to console
-        # add a FileHandler here for application logs
-        logging.FileHandler("rkc_api_app.log")
-    ]
-)
-logger = logging.getLogger(__name__)
 
-
-# --- Lifespan Management for RKC Connection and Poller ---
-polling_bg_task = None
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+class RKCControllerServer:
     """
-    Manages application startup and shutdown events.
-    - Initializes RKCManager and connects to the controller.
-    - Starts the background polling task.
-    - Cleans up on shutdown.
+    Encapsulates FastAPI server setup and running logic for the RKC Controller API.
+
+    Example usage:
+        server = RKCControllerServer()
+        server.start()
     """
-    global polling_bg_task
-    logger.info("FastAPI application startup...")
 
-    # Initialize and connect RKCManager
-    # Assign to the module-level variable rkc_handler
-    rkc_manager_module.rkc_handler = rkc_manager_module.RKCManager()
-    logger.info("Attempting to connect RKC controller via RKCManager...")
-    # The connect method is synchronous, run it in a thread to avoid blocking event loop
-    await anyio.to_thread.run_sync(rkc_manager_module.rkc_handler.connect)
+    def __init__(self):
+        # Configure logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler("rkc_api_app.log"),
+            ],
+        )
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self._app = FastAPI(
+            title="RKC Controller API",
+            description="API to interact with RKC FB Series Temperature Controllers and log data.",
+            version="0.1.0",
+            lifespan=self._lifespan,
+        )
 
-    if rkc_manager_module.rkc_handler.is_connected:
-        logger.info("RKC Manager connected. Starting polling task.")
-        # Start the background polling task
-        polling_bg_task = asyncio.create_task(polling_task(rkc_manager_module.rkc_handler))
-    else:
-        logger.error("RKC Manager failed to connect. Polling task will not start. API might be limited.")
-        # The API endpoints will check rkc_manager.is_connected
+        # Include routers
+        self._app.include_router(rkc_api_router, prefix="/controller", tags=["RKC Controller"])
 
-    yield  # Application runs here
+        # Root endpoint
+        @self._app.get("/", tags=["Root"])
+        async def read_root():
+            return {"message": "Welcome to the RKC Controller API. See /docs for API details."}
 
-    logger.info("FastAPI application shutdown...")
-    if polling_bg_task and not polling_bg_task.done():
-        logger.info("Cancelling polling task...")
-        polling_bg_task.cancel()
-        try:
-            await polling_bg_task
-        except asyncio.CancelledError:
-            logger.info("Polling task successfully cancelled.")
-        except Exception as e:
-            logger.error("Error during polling task shutdown: %s", e, exc_info=True)
+    @asynccontextmanager
+    async def _lifespan(self, app: FastAPI):
+        """
+        Lifespan context: 
+        Manages application startup and shutdown events.
+        - Initializes RKCManager and connects to the controller.
+        - Starts/stops the background polling task.
+        - Cleans up on shutdown.
+        """
+        self.logger.info("FastAPI application startup...")
 
-    if rkc_manager_module.rkc_handler:
-        logger.info("Disconnecting RKC controller via RKCManager...")
-        # The disconnect method is synchronous
-        await anyio.to_thread.run_sync(rkc_manager_module.rkc_handler.disconnect)
-    logger.info("Shutdown complete.")
+        # Initialize and connect RKCManager
+        rkc_manager_module.rkc_handler = rkc_manager_module.RKCManager()
+        self.logger.info("Connecting to RKC controller...")
+        await anyio.to_thread.run_sync(rkc_manager_module.rkc_handler.connect)
 
-# --- FastAPI Application Instance ---
-app = FastAPI(
-    title="RKC Controller API",
-    description="API to interact with RKC FB Series Temperature Controllers and log data.",
-    version="0.1.0",
-    lifespan=lifespan # Register lifespan context manager
-)
+        # Start polling task if connected
+        if rkc_manager_module.rkc_handler.is_connected:
+            self.logger.info("Connected. Starting polling task.")
+            # Start the background polling task
+            self._poll_task = asyncio.create_task(
+                polling_task(rkc_manager_module.rkc_handler)
+            )
+        else:
+            self.logger.error("Connection failed. Polling task will not start.")
+            # The API endpoints will check rkc_manager.is_connected
+        yield  # Application runs here
 
-# Include API routers
-app.include_router(rkc_api_router, prefix="/controller", tags=["RKC Controller"])
+        # Shutdown
+        self.logger.info("Application shutdown...")
+        if hasattr(self, '_poll_task') and not self._poll_task.done():
+            self.logger.info("Cancelling polling task...")
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                self.logger.info("Polling task cancelled.")
+            except Exception as e:
+                self.logger.error("Error shutting down polling: %s", e, exc_info=True)
 
-@app.get("/", tags=["Root"])
-async def read_root():
-    """
-    Root endpoint for the API. Returns a welcome message.
-    """
-    return {"message": "Welcome to the RKC Controller API. See /docs for API details."}
+        # Disconnect RKC
+        if hasattr(rkc_manager_module, 'rkc_handler') and rkc_manager_module.rkc_handler:
+            self.logger.info("Disconnecting RKC controller...")
+            await anyio.to_thread.run_sync(
+                rkc_manager_module.rkc_handler.disconnect
+            )
+        self.logger.info("Shutdown complete.")
 
-# --- Main entry point for running the server ---
+    def start(self, host: str = None, port: int = None, log_level: str = "info"):
+        """
+        Start the Uvicorn server with the configured FastAPI app.
+
+        :param host: hostname to bind (defaults to settings['host'])
+        :param port: port number (defaults to settings['port'])
+        :param log_level: Uvicorn log level
+        """
+        h = host or settings['host']
+        p = port or settings['port']
+        self.logger.info("Starting Uvicorn server on %s:%s", h, p)
+        uvicorn.run(self._app, host=h, port=p, log_level=log_level)
+
+
 if __name__ == "__main__":
-    # This allows running the app directly using `python src/rkc_controller_api/main.py`
-    # For production, prefer `uvicorn rkc_controller_api.main:app --reload`
-    logger.info("Starting Uvicorn server on %s:%s", settings['host'], settings['port'])
-    uvicorn.run(app, host=settings['host'], port=settings['port'], log_level="info")
-
+    server = RKCControllerServer()
+    server.start()
