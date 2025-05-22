@@ -16,10 +16,10 @@ class ControllerStatus(BaseModel):
 
 class HistoryEntry(BaseModel):
     """Model for a single log entry."""
-    timestamp: str # Store as string from CSV, can be parsed to datetime if needed
-    current_temperature: Optional[str] = None
-    target_temperature: Optional[str] = None
-    output_value: Optional[str] = None
+    timestamp: datetime # Store as string from CSV, can be parsed to datetime if needed
+    current_temperature: Optional[float] = None
+    target_temperature: Optional[float] = None
+    output_value: Optional[float] = None
 
 class HistoryResponse(BaseModel):
     """Response model for history."""
