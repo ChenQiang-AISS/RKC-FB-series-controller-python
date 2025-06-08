@@ -1,5 +1,6 @@
 import logging
 from typing import Optional
+import threading
 
 # Assuming fb_controller is in src/ and Python path is set up correctly
 from fb_controller.rkc_communication import RKCCommunication
@@ -17,6 +18,7 @@ class RKCManager:
 		self.current_temperature: Optional[float] = None
 		self.target_temperature: Optional[float] = None
 		self.output_value: Optional[float] = None
+		self._lock = threading.Lock()
 
 	def connect(self):
 		"""Establishes connection to the RKC controller."""
@@ -37,10 +39,11 @@ class RKCManager:
 				baudrate=settings['baudrate'],
 				timeout=settings['timeout']
 			)
-			self.comm.open()
-			
-			# A test read can confirm connectivity.
-			pv_test = self.comm.read_value() 
+			with self._lock:
+				self.comm.open()
+				
+				# A test read can confirm connectivity.
+				pv_test = self.comm.read_value()
 			if pv_test is not None:
 				logger.info("Successfully connected to RKC controller. Initial PV: %s", pv_test)
 				self.is_connected = True
@@ -58,7 +61,8 @@ class RKCManager:
 		"""Closes connection to the RKC controller."""
 		if self.comm and hasattr(self.comm, 'close') and self.is_connected:
 			try:
-				self.comm.close()
+				with self._lock:
+					self.comm.close()
 				logger.info("Disconnected from RKC controller.")
 			except Exception as e:
 				logger.error("Error during RKC controller disconnection: %s", e, exc_info=True)
@@ -72,9 +76,10 @@ class RKCManager:
 			return None, None, None
 
 		try:
-			self.current_temperature = self.comm.read_value()
-			self.target_temperature = float(self.comm.poll(identifier="S1"))  # Reading output value 
-			self.output_value = float(self.comm.poll(identifier="O1"))  # Reading output value
+			with self._lock:
+				self.current_temperature = self.comm.read_value()
+				self.target_temperature = float(self.comm.poll(identifier="S1"))  # Reading output value
+				self.output_value = float(self.comm.poll(identifier="O1"))  # Reading output value
 			logger.debug("Read status: current_temperature=%s, target_temperature=%s, output_value=%s",
 				self.current_temperature, self.target_temperature, self.output_value)
 			return self.current_temperature, self.target_temperature, self.output_value
@@ -96,7 +101,8 @@ class RKCManager:
 			logger.warning("Not connected to RKC controller. Cannot set temperature.")
 			return False
 		try:
-			self.comm.set_value(temperature)
+			with self._lock:
+				self.comm.set_value(temperature)
 			logger.info("Sent command to set temperature to %s", temperature)
 			self.target_temperature = temperature
 			return True
