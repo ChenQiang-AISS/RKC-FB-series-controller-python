@@ -94,6 +94,20 @@ async def get_history_endpoint(
         # Filter out rows with invalid timestamps
         df = df.dropna(subset=['timestamp'])
 
+        # Localize naive timestamps from CSV to the server's current local timezone.
+        # This assumes timestamps in CSV were logged in the server's local time (as naive)
+        # and makes them timezone-aware for correct comparison.
+        if not df.empty and pd.api.types.is_datetime64_ns_dtype(df['timestamp']) and df['timestamp'].dt.tz is None:
+            try:
+                local_tz = datetime.now().astimezone().tzinfo
+                df['timestamp'] = df['timestamp'].dt.tz_localize(local_tz, ambiguous='infer', nonexistent='raise')
+            except Exception as e:
+                logger.error("Failed to localize timestamps in DataFrame: %s", e, exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail="Error processing timestamp timezones in log data."
+                ) from e
+
         # Make query timestamps timezone-aware if they are naive, assuming local timezone
         effective_from_ts = from_timestamp
         if effective_from_ts and effective_from_ts.tzinfo is None:
@@ -138,4 +152,3 @@ async def get_history_endpoint(
         count=len(entries_to_return),
         entries=entries_to_return
     )
-
