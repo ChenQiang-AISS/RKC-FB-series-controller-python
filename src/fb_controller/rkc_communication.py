@@ -35,15 +35,40 @@ class RKCCommunication:
         self.ser: serial.Serial = None
 
     def __enter__(self) -> "RKCCommunication":
-        self.ser = serial.Serial(
-            port=self.port,
-            baudrate=self.baudrate,
-            timeout=self.timeout,
-            bytesize=self.bytesize,
-            parity=self.parity,
-            stopbits=self.stopbits
-        )
+        """Context manager entry: opens the serial port."""
+        self.open()
+        if not self.ser or not self.ser.is_open:
+             # If open failed, __enter__ should ideally raise an exception
+             # to prevent the 'with' block from executing with a closed port.
+            raise serial.SerialException(f"Failed to open port {self.port} within context manager.")
         return self
+
+
+    def open(self) -> bool:
+        """
+        Opens the serial port connection.
+        Returns:
+            bool: True if connection was successful, False otherwise.
+        """
+        if self.ser and self.ser.is_open:
+            logging.info("Serial port %s is already open.", self.port)
+            return True
+        try:
+            logging.info("Opening serial port %s with baudrate %s.", self.port, self.baudrate)
+            self.ser = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                timeout=self.timeout,
+                bytesize=self.bytesize,
+                parity=self.parity,
+                stopbits=self.stopbits
+            )
+            logging.info("Serial port %s opened successfully.", self.port)
+            return True
+        except serial.SerialException as e:
+            logging.error("Failed to open serial port %s: %s", self.port, e, exc_info=True)
+            self.ser = None
+            return False
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Close the serial connection when exiting the context."""

@@ -3,9 +3,20 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fb_controller"
-dependencies = ["pyserial>=3.0"]
-requires-python = ">=3.8"
-version = "1.0.0"
+name = "rkc-suite"
+version = "2.0.0"
+description = "FB100/400/900 communication library + web API"
 readme = "README.md"
-description = "A Python library facilitates communication with the FB100/400/900 controllers"
+requires-python = ">=3.8"
+dependencies = [
+  "pyserial>=3.0",
+  "fastapi>=0.115.0",      
+  "uvicorn>=0.32.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = [
+  "fb_controller",
+  "rkc_service"
+]
