@@ -152,3 +152,75 @@ async def get_history_endpoint(
         count=len(entries_to_return),
         entries=entries_to_return
     )
+
+@router.post("/poll", response_model=schemas.PollResponse)
+async def poll_endpoint(
+    poll_request: schemas.PollRequest = Body(...),
+    rkc_manager: RKCManager = Depends(get_rkc_manager)
+):
+    """
+    Performs a polling operation to request data from the RKC controller.
+    """
+    logger.info("Received request to poll with identifier: %s, memory_area: %s, return_with_identifier: %s",
+                poll_request.identifier, poll_request.memory_area, poll_request.return_with_identifier)
+
+    try:
+        result = await anyio.to_thread.run_sync(
+            rkc_manager.execute_poll,
+            poll_request.identifier,
+            poll_request.memory_area,
+            poll_request.return_with_identifier
+        )
+
+        if result is not None:
+            if poll_request.return_with_identifier:
+                identifier, data = result
+                return schemas.PollResponse(
+                    success=True,
+                    message="Poll successful.",
+                    data=data,
+                    identifier=identifier
+                )
+            else:
+                data = result
+                return schemas.PollResponse(
+                    success=True,
+                    message="Poll successful.",
+                    data=data
+                )
+        else:
+            logger.error("Poll operation failed for identifier: %s", poll_request.identifier)
+            raise HTTPException(status_code=500, detail="Poll operation failed.")
+    except Exception as e:
+        logger.error("An unexpected error occurred during poll operation: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}") from e
+
+@router.post("/select", response_model=schemas.GeneralResponse)
+async def select_endpoint(
+    select_request: schemas.SelectRequest = Body(...),
+    rkc_manager: RKCManager = Depends(get_rkc_manager)
+):
+    """
+    Performs a selecting operation to send data to the RKC controller.
+    """
+    logger.info("Received request to select with identifier: %s, data: %s",
+                select_request.identifier, select_request.data)
+
+    try:
+        success = await anyio.to_thread.run_sync(
+            rkc_manager.execute_select,
+            select_request.identifier,
+            select_request.data
+        )
+
+        if success:
+            return schemas.GeneralResponse(
+                success=True,
+                message=f"Select operation successful for identifier '{select_request.identifier}'."
+            )
+        else:
+            logger.error("Select operation failed for identifier: %s", select_request.identifier)
+            raise HTTPException(status_code=500, detail="Select operation failed.")
+    except Exception as e:
+        logger.error("An unexpected error occurred during select operation: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}") from e

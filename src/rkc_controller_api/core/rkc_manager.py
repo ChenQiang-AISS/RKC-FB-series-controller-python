@@ -25,36 +25,32 @@ class RKCManager:
 		if self.is_connected and self.comm:
 			logger.info("Already connected to RKC controller.")
 			return True
-		try:
-			logger.info(
-				"Attempting to connect to RKC controller on port %s at address %s with baudrate %s.",
-				settings['serial_port'],
-				settings['controller_address'],
-				settings['baudrate']
-			)
+		
+		logger.info(
+			"Attempting to connect to RKC controller on port %s at address %s with baudrate %s.",
+			settings['serial_port'],
+			settings['controller_address'],
+			settings['baudrate']
+		)
+		
+		self.comm = RKCCommunication(
+			port=settings['serial_port'],
+			address=settings['controller_address'],
+			baudrate=settings['baudrate'],
+			timeout=settings['timeout']
+		)
+		with self._lock:
+			self.comm.open()
 			
-			self.comm = RKCCommunication(
-				port=settings['serial_port'],
-				address=settings['controller_address'],
-				baudrate=settings['baudrate'],
-				timeout=settings['timeout']
-			)
-			with self._lock:
-				self.comm.open()
-				
-				# A test read can confirm connectivity.
-				pv_test = self.comm.read_value()
-			if pv_test is not None:
-				logger.info("Successfully connected to RKC controller. Initial PV: %s", pv_test)
-				self.is_connected = True
-				self.current_temperature = pv_test
-			else:
-				raise ConnectionError("RKC Controller connection failed.")
+			# A test read can confirm connectivity.
+			pv_test = self.comm.read_value()
+		if pv_test is not None:
+			logger.info("Successfully connected to RKC controller. Initial PV: %s", pv_test)
+			self.is_connected = True
+			self.current_temperature = pv_test
+		else:
+			raise ConnectionError("RKC Controller connection failed.")
 
-		except Exception as e:
-			logger.error("Failed to connect to RKC controller: %s", e, exc_info=True)
-			self.is_connected = False
-			self.comm = None
 		return self.is_connected
 
 	def disconnect(self):
@@ -108,6 +104,35 @@ class RKCManager:
 			return True
 		except Exception as e:
 			logger.error("Error setting temperature on RKC controller: %s", e, exc_info=True)
+			return False
+
+	def execute_poll(self, identifier: str, memory_area: str = "", return_with_identifier: bool = False):
+		"""Executes the poll command on the controller."""
+		if not self.is_connected or not self.comm:
+			logger.error("Not connected to RKC controller. Cannot poll.")
+			return None
+
+		try:
+			with self._lock:
+				result = self.comm.poll(identifier=identifier, memory_area=memory_area, return_with_identifier=return_with_identifier)
+			logger.info("Poll command executed for identifier '%s'. Result: %s", identifier, result)
+			return result
+		except Exception as e:
+			logger.error("Error executing poll command for identifier '%s': %s", identifier, e, exc_info=True)
+			return None
+
+	def execute_select(self, identifier: str, data: str) -> bool:
+		"""Executes the select command on the controller."""
+		if not self.is_connected or not self.comm:
+			logger.error("Not connected to RKC controller. Cannot select.")
+			return False
+		try:
+			with self._lock:
+				success = self.comm.select(identifier=identifier, data=data)
+			logger.info("Select command executed for identifier '%s' with data '%s'. Success: %s", identifier, data, success)
+			return success
+		except Exception as e:
+			logger.error("Error executing select command for identifier '%s' with data '%s': %s", identifier, data, e, exc_info=True)
 			return False
 
 # Global instance of RKCManager
