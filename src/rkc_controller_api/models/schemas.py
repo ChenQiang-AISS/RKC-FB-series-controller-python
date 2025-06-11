@@ -32,3 +32,19 @@ class GeneralResponse(BaseModel):
     success: bool
     message: Optional[str] = None
     details: Optional[str] = None
+
+class PollRequest(BaseModel):
+    """Request model for polling data from the controller."""
+    identifier: str
+    memory_area: Optional[str] = ""
+    return_with_identifier: Optional[bool] = False
+
+class PollResponse(GeneralResponse):
+    """Response model for polling data from the controller."""
+    data: Optional[str] = None
+    identifier: Optional[str] = None
+
+class SelectRequest(BaseModel):
+    """Request model for selecting (sending) data to the controller."""
+    identifier: str
+    data: str
